@@ -1,0 +1,199 @@
+// Repeat database schema.
+//
+// Design notes
+// - `platform` columns are strings, not enums, so that a new provider package
+//   can be added without a database migration.
+// - Provider credentials are stored encrypted (AES-256-GCM) by the application;
+//   the database never sees plaintext tokens.
+// - A post has one media item and many destinations. Each destination is an
+//   independent publishing job with its own status, error state and retries.
+// - Destinations keep a snapshot of the account name so history survives a
+//   disconnect (the FK is nulled on delete instead of cascading).
+// - The model is multi-user from day one so the same schema can back a hosted
+//   deployment later. Teams/organizations would be introduced as a new owner
+//   dimension without changing the publishing tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions           Session[]
+  socialAccounts     SocialAccount[]
+  media              Media[]
+  posts              Post[]
+  oauthStates        OAuthState[]
+  pendingConnections PendingConnection[]
+
+  @@map("users")
+}
+
+model Session {
+  /// SHA-256 hash of the opaque session token held by the browser cookie.
+  id        String   @id
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model SocialAccount {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  platform              String
+  platformAccountId     String    @map("platform_account_id")
+  displayName           String    @map("display_name")
+  username              String?
+  avatarUrl             String?   @map("avatar_url")
+  accessTokenEncrypted  String    @map("access_token_encrypted")
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted")
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  scopes                String[]  @default([])
+  enabled               Boolean   @default(true)
+  /// Non-sensitive provider details (e.g. Facebook page id backing an Instagram account).
+  metadata              Json      @default("{}")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destinations PostDestination[]
+
+  // Uniqueness is platform + account identity, never platform alone, so a user
+  // can connect any number of accounts from the same platform.
+  @@unique([userId, platform, platformAccountId])
+  @@index([userId, enabled])
+  @@map("social_accounts")
+}
+
+model Media {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  /// Key inside the configured StorageProvider (never an absolute filesystem path).
+  storageKey      String   @unique @map("storage_key")
+  filename        String
+  mimeType        String   @map("mime_type")
+  sizeBytes       BigInt   @map("size_bytes")
+  durationSeconds Float?   @map("duration_seconds")
+  width           Int?
+  height          Int?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  @@index([userId, createdAt])
+  @@map("media")
+}
+
+model Post {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  mediaId     String   @map("media_id") @db.Uuid
+  title       String?
+  caption     String?
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media        Media             @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  destinations PostDestination[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+enum DestinationStatus {
+  queued
+  uploading
+  processing
+  published
+  failed
+  canceled
+}
+
+model PostDestination {
+  id                 String            @id @default(uuid()) @db.Uuid
+  postId             String            @map("post_id") @db.Uuid
+  socialAccountId    String?           @map("social_account_id") @db.Uuid
+  platform           String
+  accountDisplayName String            @map("account_display_name")
+  accountAvatarUrl   String?           @map("account_avatar_url")
+  status             DestinationStatus @default(queued)
+  progress           Int?
+  /// Provider-specific options chosen for this destination (validated by the provider).
+  settings           Json              @default("{}")
+  platformPostId     String?           @map("platform_post_id")
+  platformPostUrl    String?           @map("platform_post_url")
+  /// Opaque provider state carried between publish() and getStatus() (e.g. an Instagram container id).
+  providerState      Json?             @map("provider_state")
+  errorCode          String?           @map("error_code")
+  errorMessage       String?           @map("error_message")
+  errorRetryable     Boolean?          @map("error_retryable")
+  attempts           Int               @default(0)
+  /// Current queue job id, for observability and cancellation.
+  jobId              String?           @map("job_id")
+  startedAt          DateTime?         @map("started_at")
+  publishedAt        DateTime?         @map("published_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  post          Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, socialAccountId])
+  @@index([status])
+  @@index([socialAccountId])
+  @@map("post_destinations")
+}
+
+/// Server-side record of an in-flight OAuth authorization (CSRF protection + PKCE verifier).
+model OAuthState {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  connectorId  String   @map("connector_id")
+  /// Random, single-use value echoed back by the provider.
+  state        String   @unique
+  codeVerifier String?  @map("code_verifier")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("oauth_states")
+}
+
+/// Accounts discovered by an OAuth callback that still await the user's selection
+/// (e.g. one Meta login can expose several Pages and Instagram accounts).
+model PendingConnection {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  connectorId      String   @map("connector_id")
+  /// Encrypted JSON: the list of connectable accounts including their credentials.
+  payloadEncrypted String   @map("payload_encrypted")
+  expiresAt        DateTime @map("expires_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("pending_connections")
+}

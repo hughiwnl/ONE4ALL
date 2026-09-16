@@ -1,0 +1,132 @@
+# Full self-hosted stack:
+#
+#   cp .env.example .env   # then set SESSION_SECRET and TOKEN_ENCRYPTION_KEY
+#   docker compose up --build
+#
+# Services:
+#   db       PostgreSQL 16 (state)
+#   redis    Redis 7 (job queue)
+#   migrate  one-shot: applies database migrations, then exits
+#   web      Next.js app (UI + API) on http://localhost:3000
+#   worker   background publisher (scale with `--scale worker=N`)
+#
+# web, worker and migrate all run the same image (built once from docker/Dockerfile).
+#
+# Uploaded media lives in the `media` volume; database data in `postgres`.
+
+name: repeat
+
+x-app-env: &app-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-repeat}:${POSTGRES_PASSWORD:-repeat}@db:5432/${POSTGRES_DB:-repeat}
+  REDIS_URL: redis://redis:6379
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env (openssl rand -base64 48)}
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?Set TOKEN_ENCRYPTION_KEY in .env (openssl rand -base64 32)}
+  ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+  MEDIA_STORAGE_DRIVER: local
+  MEDIA_STORAGE_PATH: /data/media
+  MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-2048}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  META_APP_ID: ${META_APP_ID:-}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
+  # Development-only fake platform (publishes nowhere). See .env.example.
+  MOCK_PROVIDER_ENABLED: ${MOCK_PROVIDER_ENABLED:-false}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-repeat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repeat}
+      POSTGRES_DB: ${POSTGRES_DB:-repeat}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-repeat} -d ${POSTGRES_DB:-repeat}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '60', '1', '--appendonly', 'yes']
+    volumes:
+      - redis:/data
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: repeat-app:local
+    pull_policy: never
+    command: ['pnpm', '--filter', '@repeat/database', 'migrate:deploy']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repeat}:${POSTGRES_PASSWORD:-repeat}@db:5432/${POSTGRES_DB:-repeat}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  web:
+    # The single application image; worker and migrate reuse it.
+    image: repeat-app:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ['pnpm', '--filter', '@repeat/web', 'start']
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      NODE_ENV: ${NODE_ENV:-production}
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: repeat-app:local
+    pull_policy: never
+    command: ['pnpm', '--filter', '@repeat/worker', 'start']
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      NODE_ENV: ${NODE_ENV:-production}
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres:
+  redis:
+  media:

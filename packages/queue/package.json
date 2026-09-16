@@ -1,0 +1,25 @@
+{
+  "name": "@repeat/queue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@repeat/core": "workspace:*",
+    "@repeat/provider-sdk": "workspace:*",
+    "bullmq": "^5.81.5",
+    "ioredis": "^5.11.1"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
+  }
+}

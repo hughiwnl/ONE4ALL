@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+.next/
+.turbo/
+out/
+coverage/
+*.tsbuildinfo
+
+# environment / secrets
+.env
+.env.*
+!.env.example
+
+# local data (uploads, docker volumes)
+data/
+storage/
+
+# misc
+.DS_Store
+*.log
+playwright-report/
+test-results/

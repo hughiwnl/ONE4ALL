@@ -1,0 +1,48 @@
+{
+  "name": "repeat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source, self-hosted publishing of one piece of media to many connected social-media accounts.",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration --concurrency=1",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @repeat/database generate",
+    "db:migrate": "pnpm --filter @repeat/database migrate:dev",
+    "db:deploy": "pnpm --filter @repeat/database migrate:deploy",
+    "db:seed": "pnpm --filter @repeat/database seed",
+    "db:studio": "pnpm --filter @repeat/database studio",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.7",
+    "turbo": "^2.10.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "msgpackr-extract",
+      "sharp",
+      "@tailwindcss/oxide",
+      "unrs-resolver"
+    ]
+  },
+  "type": "module"
+}
