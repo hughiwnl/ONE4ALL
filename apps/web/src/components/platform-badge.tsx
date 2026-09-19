@@ -1,6 +1,6 @@
 import { FlaskConical, Globe } from 'lucide-react';
 import type { ComponentType, SVGProps } from 'react';
-import { FacebookIcon, InstagramIcon, YouTubeIcon } from '@/components/brand-icons';
+import { FacebookIcon, InstagramIcon, TikTokIcon, YouTubeIcon } from '@/components/brand-icons';
 import type { PlatformId } from '@repeat/types';
 import { platformLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ const ICONS: Record<string, { Icon: IconComponent; className: string }> = {
   youtube: { Icon: YouTubeIcon, className: 'text-red-600' },
   instagram: { Icon: InstagramIcon, className: 'text-pink-600' },
   facebook: { Icon: FacebookIcon, className: 'text-blue-600' },
+  tiktok: { Icon: TikTokIcon, className: 'text-neutral-900' },
   mock: { Icon: FlaskConical, className: 'text-purple-600' },
 };
 

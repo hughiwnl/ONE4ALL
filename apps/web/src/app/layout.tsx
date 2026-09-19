@@ -4,7 +4,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: { default: 'Repeat', template: '%s · Repeat' },
-  description: 'Publish one video to all of your connected social accounts at once.',
+  description:
+    'Publish one video, image or carousel to all of your connected social accounts at once.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

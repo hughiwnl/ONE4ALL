@@ -6,8 +6,13 @@ import { Readable } from 'node:stream';
 import { loadEnv, type Env } from '@repeat/config';
 import { createTestPrismaClient, truncateAll, TEST_DATABASE_URL } from '@repeat/database/testing';
 import type { Db } from '@repeat/database';
-import { MockPublisher } from '@repeat/provider-mock';
-import { ConnectorRegistry, ProviderRegistry, type ConnectableAccount } from '@repeat/provider-sdk';
+import { MockPublisher, type MockSettings } from '@repeat/provider-mock';
+import {
+  ConnectorRegistry,
+  ProviderRegistry,
+  type ConnectableAccount,
+  type PublisherProvider,
+} from '@repeat/provider-sdk';
 import {
   createCoreServices,
   createLogger,
@@ -26,11 +31,29 @@ export interface Harness {
   createUser(email?: string): Promise<{ id: string; email: string }>;
   connectMock(userId: string, displayName: string, behavior?: string): Promise<string>;
   uploadVideo(userId: string, filename?: string): Promise<string>;
+  uploadImage(
+    userId: string,
+    filename?: string,
+    mimeType?: 'image/jpeg' | 'image/png',
+  ): Promise<string>;
+  /** Connect an account on the video-only test platform (single video per post, like YouTube). */
+  connectVideoOnly(userId: string, displayName: string): Promise<string>;
   reset(): Promise<void>;
   close(): Promise<void>;
 }
 
 /** A valid-looking MP4 header (ftyp box) followed by filler. */
+/** Minimal files whose headers pass the upload sniffing. */
+export function fakeJpeg(size = 2048): Buffer {
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(size - 4, 1)]);
+}
+export function fakePng(size = 2048): Buffer {
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(size - 8, 1),
+  ]);
+}
+
 export function fakeMp4(size = 4096): Buffer {
   const header = Buffer.concat([
     Buffer.from([0, 0, 0, 0x18]),
@@ -56,7 +79,23 @@ export async function createHarness(): Promise<Harness> {
   const db = createTestPrismaClient();
   const storage = new LocalStorageProvider(mediaDir);
   const mock = new MockPublisher({ defaultUploadMs: 0, sleep: async () => {} });
-  const providers = new ProviderRegistry().register(mock);
+  // A second platform that, like YouTube or TikTok, only takes one video per post.
+  const videoOnlyBase = new MockPublisher({ defaultUploadMs: 0, sleep: async () => {} });
+  const videoOnly: PublisherProvider<MockSettings> = {
+    platform: 'videoonly',
+    displayName: 'VideoOnly',
+    capabilities: { media: { video: true, image: false }, requiresPublicMediaUrl: false },
+    settingsFields: [],
+    settingsSchema: videoOnlyBase.settingsSchema,
+    notes: [],
+    validateAccount: (account) => videoOnlyBase.validateAccount(account),
+    refreshCredentialsIfNeeded: (account) => videoOnlyBase.refreshCredentialsIfNeeded(account),
+    validateMedia: (media) => videoOnlyBase.validateMedia(media),
+    publish: (input, ctx) => videoOnlyBase.publish(input, ctx),
+    getStatus: (input, ctx) => videoOnlyBase.getStatus(input, ctx),
+    normalizeError: (error) => videoOnlyBase.normalizeError(error),
+  };
+  const providers = new ProviderRegistry().register(mock).register(videoOnly);
   const connectors = new ConnectorRegistry();
   const dispatcher = new InMemoryDispatcher();
   const logger = createLogger({ level: 'silent' });
@@ -99,6 +138,29 @@ export async function createHarness(): Promise<Harness> {
         metadata: { behavior },
       };
       const result = await services.accounts.connect(userId, [account]);
+      return (result.created[0] ?? result.updated[0])!.id;
+    },
+    async uploadImage(userId, filename = 'photo.jpg', mimeType = 'image/jpeg') {
+      const media = await services.media.createFromStream({
+        userId,
+        filename,
+        mimeType,
+        stream: Readable.from([mimeType === 'image/png' ? fakePng() : fakeJpeg()]),
+      });
+      return media.id;
+    },
+    async connectVideoOnly(userId, displayName) {
+      const result = await services.accounts.connect(userId, [
+        {
+          platform: 'videoonly',
+          platformAccountId: `vo-${displayName.toLowerCase().replace(/\s+/g, '-')}`,
+          displayName,
+          username: null,
+          avatarUrl: null,
+          credentials: { accessToken: 'vo-token', refreshToken: null, expiresAt: null, scopes: [] },
+          metadata: { behavior: 'succeed' },
+        },
+      ]);
       return (result.created[0] ?? result.updated[0])!.id;
     },
     async uploadVideo(userId, filename = 'video.mp4') {

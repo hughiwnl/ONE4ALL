@@ -1,5 +1,5 @@
 {
-  "name": "@repeat/providers",
+  "name": "@repeat/provider-tiktok",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,12 +14,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@repeat/config": "workspace:*",
-    "@repeat/provider-meta": "workspace:*",
-    "@repeat/provider-mock": "workspace:*",
     "@repeat/provider-sdk": "workspace:*",
-    "@repeat/provider-tiktok": "workspace:*",
-    "@repeat/provider-youtube": "workspace:*"
+    "@repeat/types": "workspace:*",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "vitest": "^3.2.7"

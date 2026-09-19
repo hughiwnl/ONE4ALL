@@ -64,6 +64,8 @@ export class MockPublisher implements PublisherProvider<MockSettings> {
   readonly settingsSchema = mockSettingsSchema;
   readonly capabilities: ProviderCapabilities = {
     media: { video: true, image: true },
+    // Lets developers exercise carousels without a real Instagram account.
+    maxMediaItems: 10,
     requiresPublicMediaUrl: false,
   };
   readonly settingsFields: SettingsField[] = [
@@ -160,12 +162,20 @@ export class MockPublisher implements PublisherProvider<MockSettings> {
 
     // Simulate a streamed upload with progress. We really read the stream so
     // storage access is exercised end to end.
-    const stream = await input.media.openStream();
+    const items = input.mediaItems.length > 0 ? input.mediaItems : [input.media];
+    const totalBytes = Math.max(
+      1,
+      items.reduce((sum, item) => sum + item.sizeBytes, 0),
+    );
     let read = 0;
-    for await (const chunk of stream) {
-      read += (chunk as Buffer).length;
-      ctx.onProgress(Math.min(99, Math.round((read / Math.max(1, input.media.sizeBytes)) * 100)));
-      if (ctx.signal?.aborted) throw ProviderError.retryable(ProviderErrorCode.TIMEOUT, 'Aborted');
+    for (const item of items) {
+      const stream = await item.openStream();
+      for await (const chunk of stream) {
+        read += (chunk as Buffer).length;
+        ctx.onProgress(Math.min(99, Math.round((read / totalBytes) * 100)));
+        if (ctx.signal?.aborted)
+          throw ProviderError.retryable(ProviderErrorCode.TIMEOUT, 'Aborted');
+      }
     }
     const steps = 4;
     for (let i = 1; i <= steps; i += 1) {

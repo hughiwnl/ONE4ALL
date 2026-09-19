@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import pino, { type Logger as PinoLogger, type LoggerOptions } from 'pino';
 import type { ProviderLogger } from '@repeat/provider-sdk';
 
@@ -51,7 +52,8 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
     redact: { paths: REDACTED_PATHS, censor: '[redacted]' },
     formatters: { level: (label) => ({ level: label }) },
   };
-  if (options.pretty) {
+  // pino-pretty is a dev dependency; fall back to JSON logs when it is not installed.
+  if (options.pretty && isPrettyAvailable()) {
     return pino({ ...base, transport: { target: 'pino-pretty', options: { colorize: true } } });
   }
   return pino(base);
@@ -60,4 +62,13 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
 /** pino's logger already satisfies the provider-facing contract. */
 export function asProviderLogger(logger: Logger): ProviderLogger {
   return logger;
+}
+
+function isPrettyAvailable(): boolean {
+  try {
+    createRequire(import.meta.url).resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -33,13 +33,31 @@ export function toPostDestinationDto(destination: PostDestination): PostDestinat
   };
 }
 
-export function toPostDto(post: Post & { media: Media; destinations: PostDestination[] }): PostDto {
+/** Shape of a post loaded with its ordered media items. */
+export type PostWithMedia = Post & { mediaItems: { position: number; media: Media }[] };
+
+/** Prisma include for a post's media in publishing order. */
+export const POST_MEDIA_INCLUDE = {
+  mediaItems: { include: { media: true }, orderBy: { position: 'asc' as const } },
+};
+
+function orderedMedia(post: PostWithMedia): Media[] {
+  const items = [...post.mediaItems]
+    .sort((a, b) => a.position - b.position)
+    .map((item) => item.media);
+  if (items.length === 0) throw new Error(`Post ${post.id} has no media items`);
+  return items;
+}
+
+export function toPostDto(post: PostWithMedia & { destinations: PostDestination[] }): PostDto {
+  const media = orderedMedia(post).map(toMediaDto);
   return {
     id: post.id,
     title: post.title,
     caption: post.caption,
     description: post.description,
-    media: toMediaDto(post.media),
+    media: media[0]!,
+    mediaItems: media,
     destinations: post.destinations.map(toPostDestinationDto),
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
@@ -63,13 +81,15 @@ export function summarizeDestinations(
 }
 
 export function toPostSummaryDto(
-  post: Post & { media: Media; destinations: { status: DestinationStatus }[] },
+  post: PostWithMedia & { destinations: { status: DestinationStatus }[] },
 ): PostSummaryDto {
+  const media = orderedMedia(post);
   return {
     id: post.id,
     title: post.title,
     caption: post.caption,
-    media: toMediaDto(post.media),
+    media: toMediaDto(media[0]!),
+    mediaCount: media.length,
     summary: summarizeDestinations(post.destinations),
     createdAt: post.createdAt.toISOString(),
   };

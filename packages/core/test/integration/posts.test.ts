@@ -18,7 +18,7 @@ describe('PostService.create', () => {
     const mediaId = await h.uploadVideo(user.id);
 
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       title: 'Hello',
       caption: 'cap',
       destinations: [
@@ -46,7 +46,7 @@ describe('PostService.create', () => {
     const user = await h.createUser();
     const mediaId = await h.uploadVideo(user.id);
     await expect(
-      h.services.posts.create(user.id, { mediaId, destinations: [] }),
+      h.services.posts.create(user.id, { mediaIds: [mediaId], destinations: [] }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
@@ -57,7 +57,7 @@ describe('PostService.create', () => {
     const mediaId = await h.uploadVideo(user.id);
     await expect(
       h.services.posts.create(user.id, {
-        mediaId,
+        mediaIds: [mediaId],
         destinations: [{ socialAccountId: a, settings: {} }],
       }),
     ).rejects.toMatchObject({
@@ -77,13 +77,13 @@ describe('PostService.create', () => {
     const intruderMedia = await h.uploadVideo(intruder.id);
     await expect(
       h.services.posts.create(intruder.id, {
-        mediaId: intruderMedia,
+        mediaIds: [intruderMedia],
         destinations: [{ socialAccountId: ownerAccount, settings: {} }],
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
     await expect(
       h.services.posts.create(intruder.id, {
-        mediaId: ownerMedia,
+        mediaIds: [ownerMedia],
         destinations: [{ socialAccountId: ownerAccount, settings: {} }],
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
@@ -95,7 +95,7 @@ describe('PostService.create', () => {
     const mediaId = await h.uploadVideo(user.id);
     await expect(
       h.services.posts.create(user.id, {
-        mediaId,
+        mediaIds: [mediaId],
         destinations: [{ socialAccountId: a, settings: { behavior: 'explode' } }],
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -110,7 +110,7 @@ describe('PostService reads and retries', () => {
     const a = await h.connectMock(owner.id, 'A');
     const mediaId = await h.uploadVideo(owner.id);
     const post = await h.services.posts.create(owner.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [{ socialAccountId: a, settings: {} }],
     });
     await expect(h.services.posts.get(intruder.id, post.id)).rejects.toBeInstanceOf(NotFoundError);
@@ -124,7 +124,7 @@ describe('PostService reads and retries', () => {
     const bad = await h.connectMock(user.id, 'Bad', 'fail_permanent');
     const mediaId = await h.uploadVideo(user.id);
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [
         { socialAccountId: good, settings: {} },
         { socialAccountId: bad, settings: {} },
@@ -166,7 +166,7 @@ describe('PostService reads and retries', () => {
     const bad = await h.connectMock(owner.id, 'Bad', 'fail_permanent');
     const mediaId = await h.uploadVideo(owner.id);
     const post = await h.services.posts.create(owner.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [{ socialAccountId: bad, settings: {} }],
     });
     await h.services.engine.publishDestination(post.destinations[0]!.id, {
@@ -184,7 +184,7 @@ describe('PostService reads and retries', () => {
     const a = await h.connectMock(user.id, 'A');
     const mediaId = await h.uploadVideo(user.id);
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [{ socialAccountId: a, settings: {} }],
     });
     const canceled = await h.services.posts.cancelDestination(
@@ -208,7 +208,7 @@ describe('PostService reads and retries', () => {
     const bad = await h.connectMock(user.id, 'Bad', 'fail_permanent');
     const mediaId = await h.uploadVideo(user.id);
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       title: 'Summer Launch',
       destinations: [
         { socialAccountId: good, settings: {} },

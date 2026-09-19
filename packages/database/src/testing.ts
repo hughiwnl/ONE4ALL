@@ -52,6 +52,6 @@ export function createTestPrismaClient(): PrismaClient {
 /** Remove every row from every application table (order-independent thanks to CASCADE). */
 export async function truncateAll(db: PrismaClient): Promise<void> {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "post_destinations", "posts", "media", "pending_connections", "oauth_states", "social_accounts", "sessions", "users" CASCADE',
+    'TRUNCATE TABLE "post_destinations", "post_media_items", "posts", "media", "pending_connections", "oauth_states", "social_accounts", "sessions", "users" CASCADE',
   );
 }

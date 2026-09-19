@@ -29,8 +29,13 @@ export type UpdateAccountRequest = z.infer<typeof updateAccountRequestSchema>;
 /** Provider-specific settings are validated by the provider itself; here they are just a JSON object. */
 export const destinationSettingsSchema = z.record(z.string(), z.unknown()).default({});
 
-export const createPostRequestSchema = z.object({
-  mediaId: z.string().min(1),
+const createPostObject = z.object({
+  /** Ordered media: one video or image, or up to 10 items for a carousel. */
+  mediaIds: z
+    .array(z.string().min(1))
+    .min(1, 'Add at least one video or image')
+    .max(10, 'A post can contain at most 10 items')
+    .refine((ids) => new Set(ids).size === ids.length, 'The same file was added twice'),
   title: z.string().trim().max(500).optional(),
   caption: z.string().trim().max(5000).optional(),
   description: z.string().trim().max(10000).optional(),
@@ -43,7 +48,22 @@ export const createPostRequestSchema = z.object({
     )
     .min(1, 'Select at least one destination'),
 });
-export type CreatePostRequest = z.infer<typeof createPostRequestSchema>;
+
+export const createPostRequestSchema = z.preprocess(
+  // Backwards compatibility: `{ mediaId }` is shorthand for `{ mediaIds: [mediaId] }`.
+  (raw) => {
+    if (raw && typeof raw === 'object' && !('mediaIds' in raw) && 'mediaId' in raw) {
+      const { mediaId, ...rest } = raw as Record<string, unknown>;
+      return { ...rest, mediaIds: [mediaId] };
+    }
+    return raw;
+  },
+  createPostObject,
+);
+/** What clients send. */
+export type CreatePostRequest = z.input<typeof createPostObject>;
+/** What the server works with after validation (settings defaulted). */
+export type CreatePostInput = z.output<typeof createPostObject>;
 
 export const completeConnectionRequestSchema = z.object({
   pendingConnectionId: z.string().min(1),

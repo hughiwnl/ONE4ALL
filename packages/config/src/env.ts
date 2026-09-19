@@ -78,6 +78,8 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: optionalString,
   META_APP_ID: optionalString,
   META_APP_SECRET: optionalString,
+  TIKTOK_CLIENT_KEY: optionalString,
+  TIKTOK_CLIENT_SECRET: optionalString,
   META_GRAPH_API_VERSION: z
     .string()
     .regex(/^v\d+\.\d+$/)
@@ -130,6 +132,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   if ((env.META_APP_ID && !env.META_APP_SECRET) || (!env.META_APP_ID && env.META_APP_SECRET)) {
     problems.push('META_APP_ID and META_APP_SECRET must be set together');
   }
+  if (Boolean(env.TIKTOK_CLIENT_KEY) !== Boolean(env.TIKTOK_CLIENT_SECRET)) {
+    problems.push('TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET must be set together');
+  }
 
   if (problems.length > 0) {
     throw new EnvValidationError(problems);
@@ -160,9 +165,14 @@ export function describeEnvWarnings(env: Env): string[] {
       `APP_URL (${env.APP_URL}) is not HTTPS. OAuth providers and Instagram media downloads require a public HTTPS URL.`,
     );
   }
-  if (!env.GOOGLE_CLIENT_ID && !env.META_APP_ID && !env.MOCK_PROVIDER_ENABLED) {
+  if (
+    !env.GOOGLE_CLIENT_ID &&
+    !env.META_APP_ID &&
+    !env.TIKTOK_CLIENT_KEY &&
+    !env.MOCK_PROVIDER_ENABLED
+  ) {
     warnings.push(
-      'No providers are configured; nothing can be published. Set GOOGLE_* / META_* credentials or MOCK_PROVIDER_ENABLED=true.',
+      'No providers are configured; nothing can be published. Set GOOGLE_* / META_* / TIKTOK_* credentials or MOCK_PROVIDER_ENABLED=true.',
     );
   }
   return warnings;

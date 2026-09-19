@@ -1,11 +1,12 @@
 import path from 'node:path';
 
 /**
- * Upload validation rules. Video only in V1.
+ * Upload validation rules for videos and still images.
  *
  * Both the declared MIME type and the file extension must be on the allow list
  * and agree with each other; the first bytes of the file are also sniffed so a
- * renamed executable cannot be stored as "video/mp4".
+ * renamed executable cannot be stored as "video/mp4". Which platforms accept
+ * which types is decided per provider, not here (e.g. Instagram takes JPEG only).
  */
 
 export const ALLOWED_VIDEO_TYPES: Record<string, string[]> = {
@@ -20,7 +21,17 @@ export const ALLOWED_VIDEO_TYPES: Record<string, string[]> = {
   'video/3gpp': ['3gp'],
 };
 
-export const ALLOWED_EXTENSIONS = new Set(Object.values(ALLOWED_VIDEO_TYPES).flat());
+export const ALLOWED_IMAGE_TYPES: Record<string, string[]> = {
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/png': ['png'],
+};
+
+export const ALLOWED_MEDIA_TYPES: Record<string, string[]> = {
+  ...ALLOWED_VIDEO_TYPES,
+  ...ALLOWED_IMAGE_TYPES,
+};
+
+export const ALLOWED_EXTENSIONS = new Set(Object.values(ALLOWED_MEDIA_TYPES).flat());
 
 export interface UploadValidationInput {
   filename: string;
@@ -45,12 +56,12 @@ export function validateUpload(input: UploadValidationInput): UploadValidationRe
   }
 
   const mimeType = input.mimeType.split(';')[0]!.trim().toLowerCase();
-  const allowedExtensions = ALLOWED_VIDEO_TYPES[mimeType];
+  const allowedExtensions = ALLOWED_MEDIA_TYPES[mimeType];
   if (!allowedExtensions) {
     return {
       ok: false,
       code: 'invalid_type',
-      message: `Unsupported media type "${mimeType}". Supported: ${Object.keys(ALLOWED_VIDEO_TYPES).join(', ')}`,
+      message: `Unsupported media type "${mimeType}". Supported: ${Object.keys(ALLOWED_MEDIA_TYPES).join(', ')}`,
     };
   }
 
@@ -98,8 +109,8 @@ export function sanitizeFilename(filename: string): string {
  * Check the leading bytes of a file against the declared container format.
  * Returns null when the bytes are consistent, otherwise a human-readable reason.
  */
-export function sniffVideoHeader(header: Buffer, mimeType: string): string | null {
-  if (header.length < 12) return 'File is too small to be a video';
+export function sniffMediaHeader(header: Buffer, mimeType: string): string | null {
+  if (header.length < 12) return 'File is too small to be a valid video or image';
   const isIsoBmff = header.subarray(4, 8).toString('latin1') === 'ftyp';
   const isEbml =
     header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3;
@@ -126,6 +137,16 @@ export function sniffVideoHeader(header: Buffer, mimeType: string): string | nul
       return isRiffAvi ? null : 'File content does not look like an AVI file';
     case 'video/mpeg':
       return isMpegPs ? null : 'File content does not look like an MPEG file';
+    case 'image/jpeg':
+      return header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
+        ? null
+        : 'File content does not look like a JPEG image';
+    case 'image/png':
+      return header
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+        ? null
+        : 'File content does not look like a PNG image';
     default:
       return `Unsupported media type ${mimeType}`;
   }

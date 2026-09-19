@@ -27,6 +27,7 @@ COPY packages/providers/all/package.json packages/providers/all/
 COPY packages/providers/meta/package.json packages/providers/meta/
 COPY packages/providers/mock/package.json packages/providers/mock/
 COPY packages/providers/sdk/package.json packages/providers/sdk/
+COPY packages/providers/tiktok/package.json packages/providers/tiktok/
 COPY packages/providers/youtube/package.json packages/providers/youtube/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile

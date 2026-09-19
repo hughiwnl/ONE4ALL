@@ -59,7 +59,13 @@ export interface PublishInput<TSettings = Record<string, unknown>> {
   /** 1-based attempt number for this destination (useful for logging and idempotency). */
   attempt: number;
   account: ProviderAccount;
+  /** The first (for most providers, the only) media item. */
   media: MediaAccess;
+  /**
+   * Every media item in publishing order. Length 1 unless the provider
+   * declares `capabilities.maxMediaItems > 1` (carousels).
+   */
+  mediaItems: MediaAccess[];
   content: PostContent;
   settings: TSettings;
 }

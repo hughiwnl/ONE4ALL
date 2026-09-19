@@ -17,6 +17,8 @@ import type { StorageProvider } from '../storage/storage-provider.js';
 import { DEFAULT_MAX_JOB_ATTEMPTS } from './backoff.js';
 import type { PublishDispatcher } from './dispatcher.js';
 import { createMediaAccess } from './media-access.js';
+import { toMediaDescriptor, validatePostMedia } from './media-support.js';
+import { POST_MEDIA_INCLUDE } from '../posts/mappers.js';
 
 export interface PublishingEngineOptions {
   db: Db;
@@ -74,7 +76,7 @@ export class PublishingEngine {
 
     const destination = await db.postDestination.findUnique({
       where: { id: destinationId },
-      include: { post: { include: { media: true } }, socialAccount: true },
+      include: { post: { include: POST_MEDIA_INCLUDE }, socialAccount: true },
     });
     if (!destination) {
       this.options.logger.warn(
@@ -190,11 +192,24 @@ export class PublishingEngine {
       }
       const settings = settingsResult.data;
 
-      const media: MediaAccess = createMediaAccess(destination.post.media, {
-        storage: this.options.storage,
-        urlSigner: this.options.urlSigner,
-      });
-      const mediaCheck = await provider.validateMedia(media, settings);
+      const mediaRows = [...destination.post.mediaItems]
+        .sort((a, b) => a.position - b.position)
+        .map((item) => item.media);
+      const mediaItems: MediaAccess[] = mediaRows.map((row) =>
+        createMediaAccess(row, {
+          storage: this.options.storage,
+          urlSigner: this.options.urlSigner,
+        }),
+      );
+      const media = mediaItems[0];
+      if (!media) {
+        throw ProviderError.permanent(ProviderErrorCode.INVALID_MEDIA, 'This post has no media');
+      }
+      const mediaCheck = await validatePostMedia(
+        provider,
+        mediaRows.map(toMediaDescriptor),
+        settings,
+      );
       if (!mediaCheck.ok) {
         throw ProviderError.permanent(mediaCheck.code, mediaCheck.message);
       }
@@ -213,6 +228,7 @@ export class PublishingEngine {
           attempt: job.attempt,
           account,
           media,
+          mediaItems,
           content: {
             title: destination.post.title,
             caption: destination.post.caption,

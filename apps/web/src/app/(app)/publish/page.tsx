@@ -17,7 +17,7 @@ export default async function PublishPage() {
     <>
       <PageHeader
         title="Publish"
-        description="Upload one video, pick the destinations, publish everywhere at once."
+        description="Upload a video or images, pick the destinations, publish everywhere at once."
       />
       <PublishForm
         accounts={accounts}

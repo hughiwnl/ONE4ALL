@@ -17,6 +17,7 @@ describe('createProviders', () => {
     expect(setup.unconfigured.map((u) => u.platform).sort()).toEqual([
       'facebook',
       'instagram',
+      'tiktok',
       'youtube',
     ]);
   });
@@ -28,6 +29,8 @@ describe('createProviders', () => {
         GOOGLE_CLIENT_SECRET: 'b',
         META_APP_ID: 'c',
         META_APP_SECRET: 'd',
+        TIKTOK_CLIENT_KEY: 'e',
+        TIKTOK_CLIENT_SECRET: 'f',
         MOCK_PROVIDER_ENABLED: 'true',
       }),
     );
@@ -36,9 +39,10 @@ describe('createProviders', () => {
         .list()
         .map((p) => p.platform)
         .sort(),
-    ).toEqual(['facebook', 'instagram', 'mock', 'youtube']);
+    ).toEqual(['facebook', 'instagram', 'mock', 'tiktok', 'youtube']);
     expect(setup.connectors.forPlatform('instagram')?.id).toBe('meta');
     expect(setup.connectors.forPlatform('youtube')?.id).toBe('google');
+    expect(setup.connectors.forPlatform('tiktok')?.id).toBe('tiktok');
     expect(setup.unconfigured).toHaveLength(0);
   });
 });

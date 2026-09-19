@@ -251,6 +251,9 @@ importers:
       '@repeat/provider-sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@repeat/provider-tiktok':
+        specifier: workspace:*
+        version: link:../tiktok
       '@repeat/provider-youtube':
         specifier: workspace:*
         version: link:../youtube
@@ -293,6 +296,22 @@ importers:
 
   packages/providers/sdk:
     dependencies:
+      '@repeat/types':
+        specifier: workspace:*
+        version: link:../../types
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.20.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)
+
+  packages/providers/tiktok:
+    dependencies:
+      '@repeat/provider-sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@repeat/types':
         specifier: workspace:*
         version: link:../../types

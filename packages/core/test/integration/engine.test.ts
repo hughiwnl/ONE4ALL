@@ -16,7 +16,7 @@ async function setupPost(behaviors: string[]) {
   }
   const mediaId = await h.uploadVideo(user.id);
   const post = await h.services.posts.create(user.id, {
-    mediaId,
+    mediaIds: [mediaId],
     title: 'T',
     destinations: accountIds.map((socialAccountId) => ({ socialAccountId, settings: {} })),
   });
@@ -164,7 +164,7 @@ describe('PublishingEngine', () => {
     ).created;
     const mediaId = await h.uploadVideo(user.id);
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [{ socialAccountId: created!.id, settings: {} }],
     });
     await h.services.engine.publishDestination(post.destinations[0]!.id, {

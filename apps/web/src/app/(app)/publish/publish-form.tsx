@@ -2,9 +2,15 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { FileVideo, UploadCloud, X } from 'lucide-react';
-import type { MediaDto, ProviderInfoDto, SettingsField, SocialAccountDto } from '@repeat/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  checkMediaCompatibility,
+  MAX_POST_MEDIA_ITEMS,
+  type MediaDto,
+  type ProviderInfoDto,
+  type SettingsField,
+  type SocialAccountDto,
+} from '@repeat/types';
 import { AccountAvatar, PlatformBadge } from '@/components/platform-badge';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -13,14 +19,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { FieldHint, Input, Label, Select, Textarea } from '@/components/ui/input';
 import { api, ApiError } from '@/lib/api-client';
-import { formatBytes, formatDuration, platformLabel } from '@/lib/format';
+import { formatBytes, platformLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
-
-type Upload =
-  | { state: 'idle' }
-  | { state: 'uploading'; file: File; percent: number; controller: AbortController }
-  | { state: 'done'; media: MediaDto }
-  | { state: 'error'; message: string };
+import { MediaPicker, type PickedItem } from './media-picker';
 
 type SettingsState = Record<string, Record<string, string | boolean>>;
 
@@ -34,9 +35,8 @@ export function PublishForm({
   maxUploadSizeMb: number;
 }) {
   const router = useRouter();
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [upload, setUpload] = useState<Upload>({ state: 'idle' });
-  const [dragging, setDragging] = useState(false);
+  const [items, setItems] = useState<PickedItem[]>([]);
+  const [pickError, setPickError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
   const [description, setDescription] = useState('');
@@ -47,6 +47,20 @@ export function PublishForm({
     details?: { socialAccountId: string; message: string }[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const keyCounter = useRef(0);
+
+  // Release image previews when the page goes away.
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  useEffect(
+    () => () => {
+      for (const item of itemsRef.current)
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    },
+    [],
+  );
 
   const providerByPlatform = useMemo(
     () => new Map(providers.map((p) => [p.platform, p])),
@@ -58,51 +72,111 @@ export function PublishForm({
       map.set(account.platform, [...(map.get(account.platform) ?? []), account]);
     return [...map.entries()];
   }, [accounts]);
-  const selectedPlatforms = useMemo(() => {
-    const set = new Set<string>();
-    for (const account of accounts) if (selected.has(account.id)) set.add(account.platform);
-    return [...set];
-  }, [accounts, selected]);
 
-  function startUpload(file: File) {
-    if (file.size > maxUploadSizeMb * 1024 * 1024) {
-      setUpload({
-        state: 'error',
-        message: `${file.name} is ${formatBytes(file.size)}; the limit is ${maxUploadSizeMb} MB.`,
-      });
-      return;
+  const readyMedia: MediaDto[] = useMemo(
+    () => items.flatMap((item) => (item.state === 'done' ? [item.media] : [])),
+    [items],
+  );
+  const allUploaded = items.length > 0 && items.every((item) => item.state === 'done');
+
+  // Accounts whose platform cannot take this media (e.g. YouTube and an image).
+  // They stay selected in state, so removing the offending file brings them back.
+  const incompatible = useMemo(() => {
+    const reasons = new Map<string, string>();
+    if (readyMedia.length === 0) return reasons;
+    for (const account of accounts) {
+      const provider = providerByPlatform.get(account.platform);
+      const reason = provider ? checkMediaCompatibility(provider, readyMedia) : null;
+      if (reason) reasons.set(account.id, reason);
     }
-    const controller = new AbortController();
-    setUpload({ state: 'uploading', file, percent: 0, controller });
-    api.media
-      .upload(
-        file,
-        (percent) =>
-          setUpload((current) =>
-            current.state === 'uploading' ? { ...current, percent } : current,
-          ),
-        controller.signal,
-      )
-      .then((media) => setUpload({ state: 'done', media }))
-      .catch((err: unknown) =>
-        setUpload({
-          state: 'error',
-          message: err instanceof ApiError ? err.message : 'Upload failed',
-        }),
+    return reasons;
+  }, [accounts, providerByPlatform, readyMedia]);
+
+  const effectiveSelected = useMemo(
+    () => accounts.filter((account) => selected.has(account.id) && !incompatible.has(account.id)),
+    [accounts, selected, incompatible],
+  );
+  const selectedPlatforms = useMemo(
+    () => [...new Set(effectiveSelected.map((account) => account.platform))],
+    [effectiveSelected],
+  );
+
+  function updateItem(key: string, update: (item: PickedItem) => PickedItem) {
+    setItems((current) => current.map((item) => (item.key === key ? update(item) : item)));
+  }
+
+  function addFiles(files: File[]) {
+    setPickError(null);
+    const room = MAX_POST_MEDIA_ITEMS - items.length;
+    if (files.length > room) {
+      setPickError(
+        `A post can contain at most ${MAX_POST_MEDIA_ITEMS} items; only the first ${room} were added.`,
       );
+    }
+    const added: PickedItem[] = [];
+    for (const file of files.slice(0, Math.max(0, room))) {
+      keyCounter.current += 1;
+      const key = `item-${keyCounter.current}`;
+      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+      if (file.size > maxUploadSizeMb * 1024 * 1024) {
+        added.push({
+          key,
+          file,
+          previewUrl,
+          state: 'error',
+          message: `${formatBytes(file.size)} is over the ${maxUploadSizeMb} MB limit.`,
+        });
+        continue;
+      }
+      const controller = new AbortController();
+      added.push({ key, file, previewUrl, state: 'uploading', percent: 0, controller });
+      api.media
+        .upload(
+          file,
+          (percent) =>
+            updateItem(key, (item) => (item.state === 'uploading' ? { ...item, percent } : item)),
+          controller.signal,
+        )
+        .then((media) =>
+          updateItem(key, (item) => ({
+            key,
+            file,
+            previewUrl: item.previewUrl,
+            state: 'done',
+            media,
+          })),
+        )
+        .catch((err: unknown) =>
+          updateItem(key, (item) => ({
+            key,
+            file,
+            previewUrl: item.previewUrl,
+            state: 'error',
+            message: err instanceof ApiError ? err.message : 'Upload failed',
+          })),
+        );
+    }
+    setItems((current) => [...current, ...added]);
   }
 
-  function onDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) startUpload(file);
+  function removeItem(key: string) {
+    setItems((current) => {
+      const item = current.find((entry) => entry.key === key);
+      if (item?.state === 'uploading') item.controller.abort();
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return current.filter((entry) => entry.key !== key);
+    });
   }
 
-  function onPick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) startUpload(file);
-    event.target.value = '';
+  function moveItem(key: string, direction: -1 | 1) {
+    setItems((current) => {
+      const index = current.findIndex((item) => item.key === key);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
   }
 
   function toggleAccount(id: string, checked: boolean) {
@@ -118,7 +192,7 @@ export function PublishForm({
     setSelected((current) => {
       const next = new Set(current);
       for (const account of accounts) {
-        if (account.platform !== platform) continue;
+        if (account.platform !== platform || incompatible.has(account.id)) continue;
         if (checked) next.add(account.id);
         else next.delete(account.id);
       }
@@ -131,21 +205,19 @@ export function PublishForm({
   }
 
   async function publish() {
-    if (upload.state !== 'done' || selected.size === 0) return;
+    if (!allUploaded || effectiveSelected.length === 0) return;
     setSubmitting(true);
     setError(null);
     try {
-      const destinations = accounts
-        .filter((account) => selected.has(account.id))
-        .map((account) => ({
-          socialAccountId: account.id,
-          settings: buildSettings(
-            providerByPlatform.get(account.platform),
-            settings[account.platform],
-          ),
-        }));
+      const destinations = effectiveSelected.map((account) => ({
+        socialAccountId: account.id,
+        settings: buildSettings(
+          providerByPlatform.get(account.platform),
+          settings[account.platform],
+        ),
+      }));
       const { post } = await api.posts.create({
-        mediaId: upload.media.id,
+        mediaIds: readyMedia.map((media) => media.id),
         title: title.trim() || undefined,
         caption: caption.trim() || undefined,
         description: description.trim() || undefined,
@@ -166,99 +238,40 @@ export function PublishForm({
     }
   }
 
-  const canPublish = upload.state === 'done' && selected.size > 0 && !submitting;
+  const canPublish = allUploaded && effectiveSelected.length > 0 && !submitting;
+  const count = effectiveSelected.length;
+  const kindLabel =
+    readyMedia.length > 1
+      ? `carousel of ${readyMedia.length}`
+      : readyMedia[0]?.kind === 'image'
+        ? 'image'
+        : 'video';
 
   return (
     <div className="space-y-6">
       {/* Step 1: media */}
       <Card>
         <CardHeader>
-          <CardTitle>1. Video</CardTitle>
+          <div>
+            <CardTitle>1. Media</CardTitle>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              One video, one image, or up to {MAX_POST_MEDIA_ITEMS} items for a carousel.
+            </p>
+          </div>
         </CardHeader>
         <CardBody>
-          {upload.state === 'done' ? (
-            <div className="flex items-center gap-4">
-              <span className="flex size-12 items-center justify-center rounded-md bg-neutral-100 text-neutral-600">
-                <FileVideo className="size-6" aria-hidden="true" />
-              </span>
-              <div className="min-w-0 flex-1 text-sm">
-                <p className="truncate font-medium">{upload.media.filename}</p>
-                <p className="text-neutral-500">
-                  {formatBytes(upload.media.sizeBytes)} · {upload.media.mimeType}
-                  {upload.media.durationSeconds != null
-                    ? ` · ${formatDuration(upload.media.durationSeconds)}`
-                    : ''}
-                  {upload.media.width && upload.media.height
-                    ? ` · ${upload.media.width}×${upload.media.height}`
-                    : ''}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setUpload({ state: 'idle' })}>
-                <X className="size-4" aria-hidden="true" /> Replace
-              </Button>
-            </div>
-          ) : upload.state === 'uploading' ? (
-            <div className="text-sm">
-              <div className="flex items-center justify-between">
-                <p className="truncate font-medium">{upload.file.name}</p>
-                <Button variant="ghost" size="sm" onClick={() => upload.controller.abort()}>
-                  Cancel
-                </Button>
-              </div>
-              <div
-                className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200"
-                role="progressbar"
-                aria-valuenow={upload.percent}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className="h-full bg-brand-600 transition-[width]"
-                  style={{ width: `${upload.percent}%` }}
-                />
-              </div>
-              <p className="mt-1 text-neutral-500">Uploading {upload.percent}%…</p>
-            </div>
-          ) : (
-            <div
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-              className={cn(
-                'flex flex-col items-center justify-center rounded-md border-2 border-dashed px-6 py-10 text-center',
-                dragging ? 'border-brand-500 bg-brand-50' : 'border-neutral-300',
-              )}
-            >
-              <UploadCloud className="size-8 text-neutral-400" aria-hidden="true" />
-              <p className="mt-3 text-sm text-neutral-700">Drag and drop a video here, or</p>
-              <Button
-                variant="secondary"
-                className="mt-3"
-                onClick={() => fileInput.current?.click()}
-              >
-                Choose file
-              </Button>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.mpeg,.mpg,.3gp"
-                className="sr-only"
-                onChange={onPick}
-                aria-label="Choose a video file"
-              />
-              <p className="mt-3 text-xs text-neutral-500">
-                MP4, MOV, WebM, MKV, AVI, MPEG or 3GP · up to {maxUploadSizeMb} MB
-              </p>
-              {upload.state === 'error' ? (
-                <Alert tone="error" className="mt-4 w-full text-left">
-                  {upload.message}
-                </Alert>
-              ) : null}
-            </div>
-          )}
+          <MediaPicker
+            items={items}
+            maxUploadSizeMb={maxUploadSizeMb}
+            onAdd={addFiles}
+            onRemove={removeItem}
+            onMove={moveItem}
+          />
+          {pickError ? (
+            <Alert tone="warning" className="mt-3">
+              {pickError}
+            </Alert>
+          ) : null}
         </CardBody>
       </Card>
 
@@ -285,7 +298,7 @@ export function PublishForm({
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               maxLength={5000}
-              placeholder="Used by Instagram and Facebook"
+              placeholder="Used by Instagram, Facebook and TikTok"
             />
           </div>
           <div>
@@ -305,7 +318,7 @@ export function PublishForm({
       <Card>
         <CardHeader>
           <CardTitle>3. Destinations</CardTitle>
-          <span className="text-sm text-neutral-500">{selected.size} selected</span>
+          <span className="text-sm text-neutral-500">{count} selected</span>
         </CardHeader>
         {grouped.length === 0 ? (
           <CardBody>
@@ -320,27 +333,48 @@ export function PublishForm({
         ) : (
           <div className="divide-y divide-neutral-200">
             {grouped.map(([platform, list]) => {
-              const allSelected = list.every((account) => selected.has(account.id));
-              const someSelected = list.some((account) => selected.has(account.id));
+              const usable = list.filter((account) => !incompatible.has(account.id));
+              const allSelected =
+                usable.length > 0 && usable.every((account) => selected.has(account.id));
+              const someSelected = usable.some((account) => selected.has(account.id));
+              const platformReason =
+                usable.length === 0 ? incompatible.get(list[0]!.id) : undefined;
               return (
                 <fieldset key={platform} className="px-5 py-4">
                   <legend className="sr-only">{platformLabel(platform)} accounts</legend>
-                  <div className="mb-2 flex items-center gap-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-3">
                     <Checkbox
                       checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                       onCheckedChange={(checked) => togglePlatform(platform, checked === true)}
+                      disabled={usable.length === 0}
                       aria-label={`Select all ${platformLabel(platform)} accounts`}
                     />
-                    <PlatformBadge platform={platform} />
+                    <PlatformBadge
+                      platform={platform}
+                      className={cn(platformReason && 'opacity-50')}
+                    />
+                    {platformReason ? (
+                      <span className="text-xs text-neutral-500">{platformReason}</span>
+                    ) : null}
                   </div>
                   <ul className="ml-8 space-y-2">
                     {list.map((account) => {
                       const problem = error?.details?.find((d) => d.socialAccountId === account.id);
+                      const reason = incompatible.get(account.id);
                       return (
                         <li key={account.id}>
-                          <label className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-neutral-50">
+                          <label
+                            className={cn(
+                              'flex items-center gap-3 rounded-md px-2 py-1.5',
+                              reason
+                                ? 'cursor-not-allowed opacity-50'
+                                : 'cursor-pointer hover:bg-neutral-50',
+                            )}
+                            title={reason}
+                          >
                             <Checkbox
-                              checked={selected.has(account.id)}
+                              checked={selected.has(account.id) && !reason}
+                              disabled={Boolean(reason)}
                               onCheckedChange={(checked) =>
                                 toggleAccount(account.id, checked === true)
                               }
@@ -355,6 +389,9 @@ export function PublishForm({
                               <span className="text-xs text-neutral-500">{account.username}</span>
                             ) : null}
                           </label>
+                          {reason && !platformReason ? (
+                            <p className="ml-9 text-xs text-neutral-500">{reason}</p>
+                          ) : null}
                           {problem ? (
                             <p className="ml-9 text-xs text-red-700">{problem.message}</p>
                           ) : null}
@@ -422,11 +459,19 @@ export function PublishForm({
       ) : null}
 
       <div className="flex items-center justify-end gap-3">
-        {upload.state !== 'done' ? (
-          <span className="text-sm text-neutral-500">Upload a video to continue</span>
-        ) : null}
+        {items.length === 0 ? (
+          <span className="text-sm text-neutral-500">Add a video or image to continue</span>
+        ) : !allUploaded ? (
+          <span className="text-sm text-neutral-500">
+            {items.some((item) => item.state === 'error')
+              ? 'Remove the files that failed to upload'
+              : 'Waiting for uploads to finish…'}
+          </span>
+        ) : (
+          <span className="text-sm text-neutral-500">Posting a {kindLabel}</span>
+        )}
         <Button size="lg" onClick={publish} disabled={!canPublish} loading={submitting}>
-          Publish to {selected.size} account{selected.size === 1 ? '' : 's'}
+          Publish to {count} account{count === 1 ? '' : 's'}
         </Button>
       </div>
     </div>

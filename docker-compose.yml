@@ -17,6 +17,8 @@
 name: repeat
 
 x-app-env: &app-env
+  # Always production inside the containers: the image is a production build
+  # without dev tooling, whatever NODE_ENV your local .env uses for `pnpm dev`.
   NODE_ENV: production
   LOG_LEVEL: ${LOG_LEVEL:-info}
   DATABASE_URL: postgresql://${POSTGRES_USER:-repeat}:${POSTGRES_PASSWORD:-repeat}@db:5432/${POSTGRES_DB:-repeat}
@@ -34,6 +36,8 @@ x-app-env: &app-env
   META_APP_ID: ${META_APP_ID:-}
   META_APP_SECRET: ${META_APP_SECRET:-}
   META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
+  TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+  TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
   # Development-only fake platform (publishes nowhere). See .env.example.
   MOCK_PROVIDER_ENABLED: ${MOCK_PROVIDER_ENABLED:-false}
 
@@ -90,7 +94,6 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
-      NODE_ENV: ${NODE_ENV:-production}
     ports:
       - '${PORT:-3000}:3000'
     volumes:
@@ -115,7 +118,6 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
-      NODE_ENV: ${NODE_ENV:-production}
     volumes:
       - media:/data/media
     depends_on:

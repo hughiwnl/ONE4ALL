@@ -1,7 +1,7 @@
 import { Prisma, type Db } from '@repeat/database';
 import type { ProviderRegistry } from '@repeat/provider-sdk';
 import type {
-  CreatePostRequest,
+  CreatePostInput,
   ListPostsQuery,
   PostDestinationDto,
   PostDto,
@@ -11,7 +11,13 @@ import { NotFoundError, ValidationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { MediaService } from '../media/media-service.js';
 import type { PublishDispatcher } from '../publishing/dispatcher.js';
-import { toPostDestinationDto, toPostDto, toPostSummaryDto } from './mappers.js';
+import { toMediaDescriptor, validatePostMedia } from '../publishing/media-support.js';
+import {
+  POST_MEDIA_INCLUDE,
+  toPostDestinationDto,
+  toPostDto,
+  toPostSummaryDto,
+} from './mappers.js';
 
 /** Stable, platform-grouped ordering for destination lists. */
 const DESTINATION_ORDER: Prisma.PostDestinationOrderByWithRelationInput[] = [
@@ -38,10 +44,18 @@ export interface PostServiceOptions {
 export class PostService {
   constructor(private readonly options: PostServiceOptions) {}
 
-  async create(userId: string, input: CreatePostRequest): Promise<PostDto> {
+  async create(userId: string, input: CreatePostInput): Promise<PostDto> {
     const { db, media: mediaService, providers, logger } = this.options;
 
-    const media = await mediaService.getOwned(userId, input.mediaId);
+    if (input.mediaIds.length === 0) throw new ValidationError('Add at least one video or image');
+    if (new Set(input.mediaIds).size !== input.mediaIds.length) {
+      throw new ValidationError('The same file was added twice');
+    }
+    // Ownership check for every item; another user's media is reported as not found.
+    const mediaItems = [];
+    for (const mediaId of input.mediaIds)
+      mediaItems.push(await mediaService.getOwned(userId, mediaId));
+    const descriptors = mediaItems.map(toMediaDescriptor);
 
     // De-duplicate selections: one destination per account.
     const selections = new Map<string, Record<string, unknown>>();
@@ -84,22 +98,11 @@ export class PostService {
       if (!parsed.success) {
         problems.push({
           socialAccountId: accountId,
-          message: `Invalid settings for ${account.displayName}: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'settings'} ${issue.message}`).join('; ')}`,
+          message: `Invalid settings for ${account.displayName}: ${parsed.error.issues.map((issue) => (issue.path.length ? `${issue.message} (${issue.path.join('.')})` : issue.message)).join('; ')}`,
         });
         continue;
       }
-      const mediaCheck = await provider.validateMedia(
-        {
-          id: media.id,
-          filename: media.filename,
-          mimeType: media.mimeType,
-          sizeBytes: Number(media.sizeBytes),
-          durationSeconds: media.durationSeconds,
-          width: media.width,
-          height: media.height,
-        },
-        parsed.data,
-      );
+      const mediaCheck = await validatePostMedia(provider, descriptors, parsed.data);
       if (!mediaCheck.ok) {
         problems.push({
           socialAccountId: accountId,
@@ -119,7 +122,9 @@ export class PostService {
     const post = await db.post.create({
       data: {
         userId,
-        mediaId: media.id,
+        mediaItems: {
+          create: mediaItems.map((media, position) => ({ mediaId: media.id, position })),
+        },
         title: input.title || null,
         caption: input.caption || null,
         description: input.description || null,
@@ -137,7 +142,7 @@ export class PostService {
           }),
         },
       },
-      include: { media: true, destinations: { orderBy: DESTINATION_ORDER } },
+      include: { ...POST_MEDIA_INCLUDE, destinations: { orderBy: DESTINATION_ORDER } },
     });
 
     logger.info(
@@ -162,7 +167,7 @@ export class PostService {
   async get(userId: string, postId: string): Promise<PostDto> {
     const post = await this.options.db.post.findFirst({
       where: { id: postId, userId },
-      include: { media: true, destinations: { orderBy: DESTINATION_ORDER } },
+      include: { ...POST_MEDIA_INCLUDE, destinations: { orderBy: DESTINATION_ORDER } },
     });
     if (!post) throw new NotFoundError('Post');
     return toPostDto(post);
@@ -174,7 +179,7 @@ export class PostService {
   ): Promise<{ items: PostSummaryDto[]; nextCursor: string | null }> {
     const rows = await this.options.db.post.findMany({
       where: { userId },
-      include: { media: true, destinations: { select: { status: true } } },
+      include: { ...POST_MEDIA_INCLUDE, destinations: { select: { status: true } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),

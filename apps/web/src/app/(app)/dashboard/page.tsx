@@ -30,7 +30,7 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title="Dashboard"
-        description="Publish one video to every connected account at once."
+        description="Publish one video, image or carousel to every connected account at once."
         actions={
           <Link href="/publish">
             <Button>

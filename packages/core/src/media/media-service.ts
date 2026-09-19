@@ -7,7 +7,7 @@ import type { Logger } from '../logger.js';
 import type { StorageProvider } from '../storage/storage-provider.js';
 import { probeMedia } from './ffprobe.js';
 import { toMediaDto } from './mappers.js';
-import { formatBytes, sniffVideoHeader, validateUpload } from './media-validation.js';
+import { formatBytes, sniffMediaHeader, validateUpload } from './media-validation.js';
 
 export interface CreateMediaInput {
   userId: string;
@@ -90,7 +90,8 @@ export class MediaService {
         filename: validation.safeFilename,
         mimeType: validation.mimeType,
         sizeBytes: BigInt(sizeBytes),
-        durationSeconds: probe.durationSeconds,
+        // Still images have no duration (ffprobe may report a one-frame length).
+        durationSeconds: validation.mimeType.startsWith('image/') ? null : probe.durationSeconds,
         width: probe.width,
         height: probe.height,
       },
@@ -124,7 +125,7 @@ export class MediaService {
 
   async delete(userId: string, mediaId: string): Promise<void> {
     const media = await this.getOwned(userId, mediaId);
-    const inUse = await this.options.db.post.count({ where: { mediaId } });
+    const inUse = await this.options.db.postMediaItem.count({ where: { mediaId } });
     if (inUse > 0)
       throw new ValidationError('Media is used by an existing post and cannot be deleted');
     await this.options.db.media.delete({ where: { id: mediaId } });
@@ -165,7 +166,7 @@ function createUploadGuard(options: { maxBytes: number; mimeType: string }): Tra
       if (header) {
         header = Buffer.concat([header, chunk.subarray(0, 32)]);
         if (header.length >= 12) {
-          const problem = sniffVideoHeader(header, options.mimeType);
+          const problem = sniffMediaHeader(header, options.mimeType);
           header = null;
           if (problem) {
             callback(new UploadGuardError('invalid_content', problem));
@@ -177,7 +178,9 @@ function createUploadGuard(options: { maxBytes: number; mimeType: string }): Tra
     },
     flush(callback) {
       if (header && header.length > 0) {
-        callback(new UploadGuardError('invalid_content', 'File is too small to be a video'));
+        callback(
+          new UploadGuardError('invalid_content', 'File is too small to be a valid video or image'),
+        );
         return;
       }
       callback();

@@ -53,6 +53,7 @@ describe('loadEnv', () => {
   it('requires provider credentials to be set in pairs', () => {
     expect(() => loadEnv({ ...valid, GOOGLE_CLIENT_ID: 'id' })).toThrow(/GOOGLE_CLIENT_SECRET/);
     expect(() => loadEnv({ ...valid, META_APP_SECRET: 'secret' })).toThrow(/META_APP_ID/);
+    expect(() => loadEnv({ ...valid, TIKTOK_CLIENT_KEY: 'key' })).toThrow(/TIKTOK_CLIENT_SECRET/);
   });
 
   it('treats empty provider strings as unset', () => {

@@ -72,11 +72,13 @@ One row per **connected account**, never per platform. Identity is `(user_id, pl
 
 ### media
 
-An uploaded file: storage key (opaque, chosen by the server), original filename, MIME type, size, and ffprobe results (duration, width, height) when available. Bytes live in the `StorageProvider`, never in the database.
+An uploaded video (MP4, MOV, WebM, MKV, AVI, MPEG, 3GP) or image (JPEG, PNG): storage key (opaque, chosen by the server), original filename, MIME type, size, and ffprobe results (duration for videos, width, height) when available. Bytes live in the `StorageProvider`, never in the database. Which platform accepts which type is decided by providers, not at upload.
 
-### posts
+### posts, post_media_items
 
-The user's intent: one media item plus the common fields `title`, `caption`, `description`. Providers fall back to these when their own settings are empty.
+The user's intent: an ordered list of media items (`post_media_items`, position 0…n) plus the common fields `title`, `caption`, `description`. One item is a single video or image; 2–10 items are a carousel. Providers fall back to the common fields when their own settings are empty.
+
+Whether a platform can take a post is declared by the provider (`capabilities.media`, `capabilities.maxMediaItems`, `acceptedMimeTypes`) and checked by one shared function, `checkMediaCompatibility` in `@repeat/types`. The Publish page uses it to grey out accounts up front; the server runs it again, followed by the provider's own per-item `validateMedia`, when the post is created and right before publishing.
 
 ### post_destinations
 

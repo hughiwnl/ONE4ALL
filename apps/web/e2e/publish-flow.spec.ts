@@ -53,7 +53,7 @@ test('publishes one video to several accounts with independent outcomes', async 
   await page.goto('/publish');
   await expect(page.getByText('Hidden Account')).toHaveCount(0);
   await page
-    .getByLabel('Choose a video file')
+    .getByLabel('Choose media files')
     .setInputFiles({ name: 'e2e clip.mp4', mimeType: 'video/mp4', buffer: fakeMp4 });
   await expect(page.getByText('e2e clip.mp4')).toBeVisible();
   await page.getByLabel('Title').fill('E2E launch');
@@ -117,10 +117,41 @@ test('rejects invalid uploads and unauthenticated access', async ({ page, reques
   await expect(page).toHaveURL(/\/dashboard/);
 
   await page.goto('/publish');
-  await page.getByLabel('Choose a video file').setInputFiles({
+  await page.getByLabel('Choose media files').setInputFiles({
     name: 'not-a-video.mp4',
     mimeType: 'video/mp4',
     buffer: Buffer.from('MZ' + 'x'.repeat(5000)),
   });
   await expect(page.getByText(/does not look like video\/mp4/)).toBeVisible();
+});
+
+test('publishes an image carousel', async ({ page }) => {
+  await registerFreshUser(page);
+  await page.goto('/accounts');
+  await addMockAccount(page, 'Brand Account', 'succeed_after_processing');
+
+  const jpeg = (fill: number) =>
+    Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(4096, fill)]);
+  await page.goto('/publish');
+  await page.getByLabel('Choose media files').setInputFiles([
+    { name: 'first.jpg', mimeType: 'image/jpeg', buffer: jpeg(1) },
+    { name: 'second.jpg', mimeType: 'image/jpeg', buffer: jpeg(2) },
+  ]);
+  await expect(page.getByText('Posting a carousel of 2')).toBeVisible();
+
+  // Reorder: second becomes first
+  await page.getByRole('button', { name: 'Move second.jpg earlier' }).click();
+  const order = page.getByRole('list', { name: 'Media in publishing order' }).getByRole('listitem');
+  await expect(order.first()).toContainText('second.jpg');
+
+  await page.getByLabel('Caption', { exact: true }).first().fill('carousel from playwright');
+  await page.getByLabel('Select all Mock accounts').click();
+  await page.getByRole('button', { name: 'Publish to 1 account' }).click();
+
+  await expect(page).toHaveURL(/\/posts\//);
+  await expect(page.getByText('Publishing a carousel of 2 items to 1 destination')).toBeVisible();
+  await expect(page.getByText('Carousel · 2 items')).toBeVisible();
+  await expect(
+    page.locator('li', { hasText: 'Brand Account' }).getByText('Published', { exact: true }),
+  ).toBeVisible({ timeout: 60_000 });
 });

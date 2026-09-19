@@ -16,6 +16,7 @@ const nextConfig = {
     '@repeat/provider-mock',
     '@repeat/provider-youtube',
     '@repeat/provider-meta',
+    '@repeat/provider-tiktok',
     '@repeat/providers',
     '@repeat/queue',
     '@repeat/types',

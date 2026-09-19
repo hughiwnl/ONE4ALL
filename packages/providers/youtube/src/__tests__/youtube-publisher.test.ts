@@ -55,6 +55,7 @@ function input(settings: Partial<YouTubeSettings> = {}): PublishInput<YouTubeSet
     attempt: 1,
     account,
     media,
+    mediaItems: [media],
     content: { title: 'My video', caption: 'cap', description: 'desc' },
     settings: youtubeSettingsSchema.parse(settings),
   };

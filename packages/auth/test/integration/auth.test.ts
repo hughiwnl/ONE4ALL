@@ -115,7 +115,12 @@ describe('OAuthFlowService', () => {
           displayName: 'One',
           username: null,
           avatarUrl: null,
-          credentials: { accessToken: 'a1', refreshToken: null, expiresAt: null, scopes: [] },
+          credentials: {
+            accessToken: 'plaintext-token-one',
+            refreshToken: null,
+            expiresAt: null,
+            scopes: [],
+          },
           metadata: {},
         },
         {
@@ -124,7 +129,12 @@ describe('OAuthFlowService', () => {
           displayName: 'Two',
           username: null,
           avatarUrl: null,
-          credentials: { accessToken: 'a2', refreshToken: null, expiresAt: null, scopes: [] },
+          credentials: {
+            accessToken: 'plaintext-token-two',
+            refreshToken: null,
+            expiresAt: null,
+            scopes: [],
+          },
           metadata: {},
         },
       ];
@@ -162,7 +172,7 @@ describe('OAuthFlowService', () => {
     expect(result.accounts.every((a) => !a.alreadyConnected)).toBe(true);
     // pending payload is encrypted at rest
     const pending = await db.pendingConnection.findFirstOrThrow();
-    expect(pending.payloadEncrypted).not.toContain('a1');
+    expect(pending.payloadEncrypted).not.toContain('plaintext-token');
 
     const connected = await flow.finalize(me.id, result.pendingConnectionId, [
       { platform: 'mock', platformAccountId: 'two' },

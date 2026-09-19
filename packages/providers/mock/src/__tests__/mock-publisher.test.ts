@@ -44,6 +44,7 @@ function input(
     attempt,
     account: account(behavior),
     media,
+    mediaItems: [media],
     content: { title: 't', caption: null, description: null },
     settings,
   };

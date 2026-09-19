@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, RotateCcw } from 'lucide-react';
 import { isTerminalStatus, type PostDestinationDto, type PostDto } from '@repeat/types';
 import { AccountAvatar, PlatformBadge } from '@/components/platform-badge';
+import { MediaThumb } from '@/components/media-thumb';
 import { StatusBadge } from '@/components/status-badge';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -184,10 +185,22 @@ export function PostStatusView({ initialPost }: { initialPost: PostDto }) {
         </CardHeader>
         <CardBody className="grid gap-4 text-sm md:grid-cols-2">
           <div>
-            <p className="text-neutral-500">Media</p>
-            <p>
-              {post.media.filename} · {formatBytes(post.media.sizeBytes)}
+            <p className="text-neutral-500">
+              {post.mediaItems.length > 1 ? `Carousel · ${post.mediaItems.length} items` : 'Media'}
             </p>
+            <ol className="mt-1 space-y-1.5">
+              {post.mediaItems.map((media, index) => (
+                <li key={media.id} className="flex items-center gap-2">
+                  {post.mediaItems.length > 1 ? (
+                    <span className="w-4 text-xs text-neutral-500">{index + 1}</span>
+                  ) : null}
+                  <MediaThumb media={media} className="size-8" />
+                  <span className="truncate">
+                    {media.filename} · {formatBytes(media.sizeBytes)}
+                  </span>
+                </li>
+              ))}
+            </ol>
           </div>
           <div>
             <p className="text-neutral-500">Created</p>

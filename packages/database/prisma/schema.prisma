@@ -5,8 +5,9 @@
 //   can be added without a database migration.
 // - Provider credentials are stored encrypted (AES-256-GCM) by the application;
 //   the database never sees plaintext tokens.
-// - A post has one media item and many destinations. Each destination is an
-//   independent publishing job with its own status, error state and retries.
+// - A post has an ordered list of media items (one video, one image, or a
+//   carousel) and many destinations. Each destination is an independent
+//   publishing job with its own status, error state and retries.
 // - Destinations keep a snapshot of the account name so history survives a
 //   disconnect (the FK is nulled on delete instead of cascading).
 // - The model is multi-user from day one so the same schema can back a hosted
@@ -95,8 +96,8 @@ model Media {
   height          Int?
   createdAt       DateTime @default(now()) @map("created_at")
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  posts Post[]
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postItems PostMediaItem[]
 
   @@index([userId, createdAt])
   @@map("media")
@@ -105,7 +106,6 @@ model Media {
 model Post {
   id          String   @id @default(uuid()) @db.Uuid
   userId      String   @map("user_id") @db.Uuid
-  mediaId     String   @map("media_id") @db.Uuid
   title       String?
   caption     String?
   description String?
@@ -113,11 +113,27 @@ model Post {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media        Media             @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  mediaItems   PostMediaItem[]
   destinations PostDestination[]
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("posts")
+}
+
+/// Ordered media of a post. One row for a single video or image; up to 10 for a carousel.
+model PostMediaItem {
+  postId   String @map("post_id") @db.Uuid
+  mediaId  String @map("media_id") @db.Uuid
+  /// 0-based order; carousels are published in this order.
+  position Int
+
+  post  Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@id([postId, position])
+  @@unique([postId, mediaId])
+  @@index([mediaId])
+  @@map("post_media_items")
 }
 
 enum DestinationStatus {

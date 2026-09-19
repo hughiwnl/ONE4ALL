@@ -7,6 +7,7 @@ import {
 } from '@repeat/provider-meta';
 import { MockPublisher } from '@repeat/provider-mock';
 import { ConnectorRegistry, ProviderRegistry, type OAuthConnector } from '@repeat/provider-sdk';
+import { TikTokConnector, TikTokPublisher } from '@repeat/provider-tiktok';
 import { GoogleConnector, YouTubePublisher } from '@repeat/provider-youtube';
 
 export interface ProviderSetup {
@@ -61,6 +62,21 @@ export function createProviders(env: Env): ProviderSetup {
       platform: 'instagram',
       displayName: 'Instagram',
       reason: 'Set META_APP_ID and META_APP_SECRET',
+    });
+  }
+
+  if (env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET) {
+    const tiktok = new TikTokConnector({
+      clientKey: env.TIKTOK_CLIENT_KEY,
+      clientSecret: env.TIKTOK_CLIENT_SECRET,
+    });
+    connectors.register(tiktok);
+    providers.register(new TikTokPublisher(tiktok));
+  } else {
+    unconfigured.push({
+      platform: 'tiktok',
+      displayName: 'TikTok',
+      reason: 'Set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET',
     });
   }
 

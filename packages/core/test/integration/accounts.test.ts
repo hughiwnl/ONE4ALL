@@ -82,7 +82,7 @@ describe('AccountService', () => {
     const id = await h.connectMock(user.id, 'Main');
     const mediaId = await h.uploadVideo(user.id);
     const post = await h.services.posts.create(user.id, {
-      mediaId,
+      mediaIds: [mediaId],
       destinations: [{ socialAccountId: id, settings: {} }],
     });
     await h.services.accounts.disconnect(user.id, id);

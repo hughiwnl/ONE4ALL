@@ -13,3 +13,4 @@ export type {
 } from './publishing-engine.js';
 export { createMediaAccess } from './media-access.js';
 export { InMemoryDispatcher } from './in-memory-dispatcher.js';
+export { toMediaDescriptor, validatePostMedia } from './media-support.js';

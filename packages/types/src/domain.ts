@@ -59,8 +59,20 @@ export interface SocialAccountDto {
   updatedAt: string;
 }
 
+export type MediaKind = 'video' | 'image';
+
+/** Most items a single post may carry (Instagram's carousel limit). */
+export const MAX_POST_MEDIA_ITEMS = 10;
+
+export function mediaKindOf(mimeType: string): MediaKind | null {
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('image/')) return 'image';
+  return null;
+}
+
 export interface MediaDto {
   id: string;
+  kind: MediaKind;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -99,7 +111,10 @@ export interface PostDto {
   title: string | null;
   caption: string | null;
   description: string | null;
+  /** First item, used as the cover in lists. */
   media: MediaDto;
+  /** Every item in publishing order (one for single posts, several for a carousel). */
+  mediaItems: MediaDto[];
   destinations: PostDestinationDto[];
   createdAt: string;
   updatedAt: string;
@@ -119,7 +134,9 @@ export interface PostSummaryDto {
   id: string;
   title: string | null;
   caption: string | null;
+  /** First item, used as the cover. */
   media: MediaDto;
+  mediaCount: number;
   summary: DestinationStatusSummary;
   createdAt: string;
 }
@@ -158,8 +175,10 @@ export type SettingsField =
     };
 
 export interface ProviderCapabilities {
-  /** Accepted media kinds. V1 only publishes video. */
+  /** Accepted media kinds. */
   media: { video: boolean; image: boolean };
+  /** Items one post may contain; more than 1 means carousels are supported. Defaults to 1. */
+  maxMediaItems?: number;
   maxFileSizeBytes?: number;
   maxDurationSeconds?: number;
   minDurationSeconds?: number;
@@ -190,4 +209,48 @@ export interface ConnectableAccountDto {
   avatarUrl: string | null;
   alreadyConnected: boolean;
   metadata: Record<string, unknown>;
+}
+
+/**
+ * Whether a provider can publish a post made of these media items, judged
+ * from its declared capabilities only. Returns a human-readable reason when it
+ * cannot, or null. Shared by the Publish page (to disable accounts up front)
+ * and the server (which also runs the provider's own validateMedia).
+ */
+export function checkMediaCompatibility(
+  provider: { displayName: string; capabilities: ProviderCapabilities },
+  items: { mimeType: string }[],
+): string | null {
+  const { displayName, capabilities } = provider;
+  if (items.length === 0) return null;
+  const maxItems = capabilities.maxMediaItems ?? 1;
+  const kinds = new Set(items.map((item) => mediaKindOf(item.mimeType)));
+
+  for (const kind of kinds) {
+    if (kind === null) return `${displayName} cannot publish this file type`;
+    if (!capabilities.media[kind]) {
+      return kind === 'image'
+        ? `${displayName} does not support image posts in Repeat`
+        : `${displayName} does not support video posts in Repeat`;
+    }
+  }
+  if (items.length > maxItems) {
+    if (maxItems === 1) {
+      const only =
+        capabilities.media.image && !capabilities.media.video
+          ? 'image'
+          : capabilities.media.video && !capabilities.media.image
+            ? 'video'
+            : 'item';
+      return `${displayName} publishes a single ${only} per post, not a carousel`;
+    }
+    return `${displayName} accepts up to ${maxItems} items per post`;
+  }
+  if (capabilities.acceptedMimeTypes) {
+    const rejected = items.find((item) => !capabilities.acceptedMimeTypes!.includes(item.mimeType));
+    if (rejected) {
+      return `${displayName} does not accept ${rejected.mimeType} files (accepted: ${capabilities.acceptedMimeTypes.join(', ')})`;
+    }
+  }
+  return null;
 }
